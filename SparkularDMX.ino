@@ -140,9 +140,9 @@ void loop() {
 
 		}
 
-		fire1_light.turnOFF();
-		preheat1_light.cancel();
-		if (preheat1.getState() == LOW && fire1enabled) preheat1_light.turnON();
+		fire1_light.turnOFF(); // turn off the fire1 light feedback.
+		preheat1_light.cancel(); // turn off the preheat blinking feedback during firing.
+		if (preheat1.getState() == LOW && fire1enabled) preheat1_light.turnON(); // turn the preheat light back on if we're in an enabled state.
 
 		data[2] = 0;
 
