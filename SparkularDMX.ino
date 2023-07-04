@@ -11,6 +11,7 @@
 #include <Arduino.h>
 #include <esp_dmx.h>
 #include <ezButton.h>
+#include <ezLED.h>
 
 #define DEBOUNCE_TIME 50
 
@@ -46,12 +47,13 @@ If you see HOLES in your XLR socket: 2   1 (holes facing you - holes are often m
 int sensorPin = A0;   		// select the input pin for the potentiometer. Currently unused.
 ezButton fire1(21);			// Trigger momentary button
 ezButton preheat1(13);		// Preheat latching button
-int standby1pin = 23;		// Light for "powered on but not preheating"
-int hot1pin = 19;			// Light for "preheating"
+ezLED standby1_light(23);	// Light for "powered on but not preheating"
+ezLED preheat1_light(19);	// Light for "preheating"
+ezLED fire1_light(18);		// Light for "fire1" button
 
 bool fire1enabled = false;
 unsigned long fire1timeout = 0;
-int fire1timelimit = 10000;
+int fire1timelimit = 2000;
 
 /* Next, lets decide which DMX port to use. The ESP32 has either 2 or 3 ports.
   Port 0 is typically used to transmit serial data back to your Serial Monitor,
@@ -69,7 +71,7 @@ void setup() {
 	Serial.begin(115200);
 	delay(100);
 
-	Serial.println("STARTUP!");
+	Serial.println("Spark Machine Contol Startup");
 
 	// Set the DMX hardware pins to the pins that we want to use.
 	//
@@ -82,15 +84,15 @@ void setup() {
 
 	dmx_driver_install(dmxPort, DMX_DEFAULT_INTR_FLAGS);
 
-	// Set up our accessory pins for OUTPUT. ezButton takes care of the inputs.
-	//
-	pinMode(standby1pin, OUTPUT);
-	pinMode(hot1pin, OUTPUT);
-
 	// Set the indicator lights to default to indicate logical state regardless of the physical button stste
 	//
-	digitalWrite(hot1pin, LOW);
-	digitalWrite(standby1pin, HIGH);
+	fire1_light.turnOFF();
+	preheat1_light.turnOFF();
+	
+	// slowly blink the standby so we know it's something important.
+	// It'll keep blinking from boot until we intentionally get to "preheat"
+	//
+	standby1_light.blink(500,50);
 
 }
 
@@ -99,13 +101,20 @@ void loop() {
 	preheat1.loop();
 	fire1.loop();
 
+	fire1_light.loop();
+	preheat1_light.loop();
+	standby1_light.loop();
+
 	// This is currently ignored but left for later use.
 	//
 	int height = map(analogRead(sensorPin), 0, 1023, 0, 255);
 
 	if (fire1.isPressed()) {
 
-		if (fire1enabled) {
+		if (fire1enabled) { // don't run unless we're specifically armed.
+
+			fire1_light.turnON(); 			// turn on the fire1 light so we know it's done something.
+			preheat1_light.blink(75,75); 	// rapidly blink the preheat light to give visual feedback on the channel.
 
 			if (data[2] == 0) Serial.println("Fire 1 ON");
 			data[2] = 15;	// My machine has LOW/MED/HIGH aka F1/F2/F3. My values are 15-94, 95-174, 175-255. 
@@ -131,6 +140,10 @@ void loop() {
 
 		}
 
+		fire1_light.turnOFF();
+		preheat1_light.cancel();
+		if (preheat1.getState() == LOW && fire1enabled) preheat1_light.turnON();
+
 		data[2] = 0;
 
 		dmx_write(dmxPort, data, DMX_PACKET_SIZE);
@@ -146,9 +159,15 @@ void loop() {
 
 		// Only turn on preheat by event. This stops prehating from triggering at boot if the button was left on at bootup. User needs to cycle if off and back on for safety.
 
-		if (data[1] == 0) Serial.println("Preheat 1 ON");
-		digitalWrite(hot1pin, HIGH);
-		digitalWrite(standby1pin, LOW);
+		if (data[1] == 0) {
+			
+			Serial.println("Preheat 1 ON");
+		
+			preheat1_light.turnON();
+			standby1_light.turnOFF();
+
+		}
+
 		data[1] = 255;
 
 		fire1enabled = true; // enable fire1 only after we get the first button event to enable preheat. Stops machine firing before we turn on preheat.
@@ -159,9 +178,15 @@ void loop() {
 
 	if (preheat1.isReleased()) {
 
-		if (data[1] == 255) Serial.println("Preheat 1 OFF");
-		digitalWrite(hot1pin, LOW);
-		digitalWrite(standby1pin, HIGH);
+		if (data[1] == 255) {
+			
+			Serial.println("Preheat 1 OFF");
+
+			preheat1_light.turnOFF();
+			standby1_light.turnON();
+
+		}
+
 		data[1] = 0;
 
 		fire1enabled = false; // turn off fire1 for safety.
